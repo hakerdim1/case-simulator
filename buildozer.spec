@@ -11,7 +11,7 @@ source.include_exts = py,png,jpg,kv,atlas,json
 version = 1.0.0
 
 # Библиотеки для игры и для работы интернета
-requirements = python3,kivy==2.3.0,requests,urllib3,certifi
+requirements = python3,kivy==2.3.0,cython==0.29.36,requests,urllib3,certifi
 
 orientation = portrait
 fullscreen = 0
