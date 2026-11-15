@@ -6,22 +6,20 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,json
 version = 1.0.0
 
-# Фиксируем стабильные версии Python и Cython
-requirements = python3==3.11.1,hostpython3==3.11.1,cython==0.29.36,kivy==2.3.0,requests,urllib3,certifi
+# Добавляем jnius, requests и certifi для работы сети и Android API
+requirements = python3,kivy==2.3.0,jnius>=1.4.0,requests,urllib3,certifi
 
 orientation = portrait
 fullscreen = 0
 android.permissions = INTERNET
 android.archs = arm64-v8a
 
-# Стабильные версии API и NDK
+# Проверенная связка API и NDK
 android.api = 33
 android.minapi = 24
 android.ndk = 25b
 
-# Принудительно используем стабильную ветку python-for-android
-p4a.branch = master
-
+p4a.branch = develop
 android.accept_sdk_license = True
 
 [buildozer]
