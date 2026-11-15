@@ -6,6 +6,7 @@ import urllib.request
 import threading
 import ssl
 import certifi
+import time # 👈 ДОБАВЛЕНО ДЛЯ ОБХОДА КЭША
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.boxlayout import BoxLayout
@@ -137,13 +138,26 @@ def sync_images():
                         break
     print("Скачивание картинок завершено!")
 
+# ============ ОБНОВЛЕННАЯ ФУНКЦИЯ ЗАГРУЗКИ (ОБХОД КЭША) ============
 def load_database_from_internet(app_instance):
     global DB
     cache_file = get_cache_file()
     try:
         print("Пытаемся скачать базу...")
         ctx = ssl.create_default_context(cafile=certifi.where())
-        req = urllib.request.Request(DATABASE_URL, headers={'User-Agent': 'Mozilla/5.0'})
+        
+        # 👇 МАГИЯ: добавляем время к ссылке, чтобы GitHub не отдавал старую версию 👇
+        url_with_no_cache = f"{DATABASE_URL}?t={int(time.time())}"
+        
+        req = urllib.request.Request(
+            url_with_no_cache, 
+            headers={
+                'User-Agent': 'Mozilla/5.0',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+            }
+        )
+        
         with urllib.request.urlopen(req, timeout=10, context=ctx) as response:
             data = response.read().decode('utf-8')
             new_db = json.loads(data)
@@ -389,7 +403,7 @@ class OpeningScreen(Screen):
                 self.bind(pos=self._upd, size=self._upd)
             def _upd(self, *a):
                 cx = self.x + self.width / 2
-                self.line.points = [cx, self.y +250, cx, self.y + 150]
+                self.line.points = [cx, self.y +500, cx, self.y + 300]
 
         marker = CenterMarker(pos_hint={'center_x': 0.5, 'center_y': 0.5})
         roulette_area.add_widget(marker)
