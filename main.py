@@ -4,6 +4,8 @@ import random
 import json
 import urllib.request
 import threading
+import ssl
+import certifi
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.boxlayout import BoxLayout
@@ -19,36 +21,54 @@ from kivy.animation import Animation
 from kivy.metrics import dp
 from kivy.graphics import Color, RoundedRectangle, Line
 from kivy.core.window import Window
+from kivy.utils import platform
+
+# Проверяем разрешения на Android (Интернет)
+if platform == 'android':
+    from android.permissions import request_permissions, Permission
+    request_permissions([Permission.INTERNET, Permission.WRITE_EXTERNAL_STORAGE])
 
 # =========================================================================
 DATABASE_URL = "https://gist.githubusercontent.com/hakerdim1/0ee3bfef3ad74233fa917e1d2da47b2c/raw/database.json"
-
-# 👇 ВАША ССЫЛКА НА ПАПКУ С КАРТИНКАМИ (обязательно со словом raw) 👇
 BASE_IMAGE_URL = "https://raw.githubusercontent.com/hakerdim1/game-images/main/"
 # =========================================================================
+
+# На ПК задаем размер окна, на телефоне - нет!
+if platform != 'android':
+    try:
+        Window.size = (420, 760)
+    except Exception:
+        pass
+
+Window.clearcolor = (0.08, 0.08, 0.12, 1)
 
 try:
     from cases_data import CASES_DATABASE as LOCAL_DATABASE
 except ImportError:
     LOCAL_DATABASE = {} 
 
-try:
-    Window.size = (420, 760)
-except Exception:
-    pass
-Window.clearcolor = (0.08, 0.08, 0.12, 1)
-
 DB = LOCAL_DATABASE
-CACHE_FILE = "database_cache.json"
+
+# Функции для получения правильных путей (Android запрещает писать в корень)
+def get_data_dir():
+    app = App.get_running_app()
+    if app:
+        return app.user_data_dir
+    return "."
+
+def get_images_dir():
+    path = os.path.join(get_data_dir(), "images")
+    if not os.path.exists(path):
+        os.makedirs(path)
+    return path
+
+def get_cache_file():
+    return os.path.join(get_data_dir(), "database_cache.json")
+
+def get_save_file():
+    return os.path.join(get_data_dir(), "savegame.json")
 
 # ============ ХЕЛПЕРЫ ДЛЯ КАРТИНОК ============
-IMAGES_DIR  = "images"
-PLACEHOLDER = os.path.join(IMAGES_DIR, "placeholder.png")
-
-# Создаем папку images, если ее нет
-if not os.path.exists(IMAGES_DIR):
-    os.makedirs(IMAGES_DIR)
-
 TRANSLIT = {
     'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'yo','ж':'zh','з':'z',
     'и':'i','й':'y','к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','р':'r',
@@ -65,101 +85,93 @@ def slugify(name):
     return re.sub(r'_+', '_', ''.join(out)).strip('_')
 
 def get_image_path(item):
+    images_dir = get_images_dir()
     if item.get('image') and os.path.exists(item['image']):
         return item['image']
     slug = slugify(item.get('name', 'item'))
     for ext in ('.png', '.jpg', '.jpeg', '.webp'):
-        p = os.path.join(IMAGES_DIR, slug + ext)
+        p = os.path.join(images_dir, slug + ext)
         if os.path.exists(p):
             return p
-    return PLACEHOLDER if os.path.exists(PLACEHOLDER) else ''
+    # Плейсхолдер должен лежать в папке с игрой (в assets), поэтому ищем его отдельно
+    placeholder = "images/placeholder.png" 
+    return placeholder if os.path.exists(placeholder) else ''
 
 def left_label(text, **kw):
     lbl = Label(text=text, halign='left', valign='middle', **kw)
     lbl.bind(size=lbl.setter('text_size'))
     return lbl
 
-# ============ СИСТЕМА СКАЧИВАНИЯ КАРТИНОК ============
-def sync_images():
-    """Фоновая функция: проходит по базе и качает недостающие картинки с GitHub"""
-    print("Начинаем проверку картинок...")
-    for case_name, case_data in DB.items():
-        
-        # 1. Скачиваем обложку КЕЙСА
-        case_slug = f"case_{slugify(case_name)}"
-        # Проверяем, есть ли уже картинка кейса
-        case_exists = any(os.path.exists(os.path.join(IMAGES_DIR, case_slug + ext)) for ext in ('.png', '.jpg', '.jpeg', '.webp'))
-        
-        if not case_exists:
-            for ext in (".png", ".jpg", ".jpeg", ".webp"):
-                url = BASE_IMAGE_URL + case_slug + ext
-                try:
-                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib.request.urlopen(req, timeout=5) as resp, open(os.path.join(IMAGES_DIR, case_slug + ext), 'wb') as f:
-                        f.write(resp.read())
-                    print(f"Скачана обложка кейса: {case_name}")
-                    break
-                except Exception:
-                    pass # Если файла с таким расширением нет, идем дальше
+# ============ СИСТЕМА СКАЧИВАНИЯ (с обходом ошибок SSL на Android) ============
+def download_file(url, local_path):
+    try:
+        ctx = ssl.create_default_context(cafile=certifi.where())
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp, open(local_path, 'wb') as f:
+            f.write(resp.read())
+        return True
+    except Exception as e:
+        print(f"Ошибка скачивания {url}: {e}")
+        return False
 
-        # 2. Скачиваем картинки ОРУЖИЯ внутри кейса
+def sync_images():
+    print("Начинаем проверку картинок...")
+    images_dir = get_images_dir()
+    
+    for case_name, case_data in DB.items():
+        # Обложки кейсов
+        case_slug = f"case_{slugify(case_name)}"
+        case_exists = any(os.path.exists(os.path.join(images_dir, case_slug + ext)) for ext in ('.png', '.jpg', '.jpeg'))
+        if not case_exists:
+            for ext in (".png", ".jpg", ".jpeg"):
+                if download_file(BASE_IMAGE_URL + case_slug + ext, os.path.join(images_dir, case_slug + ext)):
+                    break
+
+        # Предметы
         for item in case_data.get('items', []):
             item_slug = slugify(item.get('name', 'item'))
-            item_exists = any(os.path.exists(os.path.join(IMAGES_DIR, item_slug + ext)) for ext in ('.png', '.jpg', '.jpeg', '.webp'))
-            
+            item_exists = any(os.path.exists(os.path.join(images_dir, item_slug + ext)) for ext in ('.png', '.jpg', '.jpeg'))
             if not item_exists:
-                for ext in (".png", ".jpg", ".jpeg", ".webp"):
-                    url = BASE_IMAGE_URL + item_slug + ext
-                    try:
-                        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                        with urllib.request.urlopen(req, timeout=5) as resp, open(os.path.join(IMAGES_DIR, item_slug + ext), 'wb') as f:
-                            f.write(resp.read())
-                        print(f"Скачан скин: {item['name']}")
+                for ext in (".png", ".jpg", ".jpeg"):
+                    if download_file(BASE_IMAGE_URL + item_slug + ext, os.path.join(images_dir, item_slug + ext)):
                         break
-                    except Exception:
-                        pass # Если картинки нет, просто идем дальше
-                        
     print("Скачивание картинок завершено!")
 
 def load_database_from_internet(app_instance):
     global DB
+    cache_file = get_cache_file()
     try:
-        print("Пытаемся скачать базу из интернета...")
+        print("Пытаемся скачать базу...")
+        ctx = ssl.create_default_context(cafile=certifi.where())
         req = urllib.request.Request(DATABASE_URL, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=5) as response:
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as response:
             data = response.read().decode('utf-8')
             new_db = json.loads(data)
             
-            with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+            with open(cache_file, 'w', encoding='utf-8') as f:
                 f.write(data)
             
             DB = new_db
-            print("База успешно обновлена из интернета!")
+            print("База успешно обновлена!")
             
-            # Запускаем скачивание картинок в отдельном потоке
             threading.Thread(target=sync_images, daemon=True).start()
-            
             Clock.schedule_once(lambda dt: app_instance.sm.get_screen('cases').on_enter(), 0)
             return
     except Exception as e:
-        print("Не удалось скачать базу из интернета:", e)
+        print("Не удалось скачать базу:", e)
     
-    if os.path.exists(CACHE_FILE):
+    if os.path.exists(cache_file):
         try:
             print("Загружаем базу из кэша...")
-            with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+            with open(cache_file, 'r', encoding='utf-8') as f:
                 DB = json.load(f)
-                
             threading.Thread(target=sync_images, daemon=True).start()
-            
             Clock.schedule_once(lambda dt: app_instance.sm.get_screen('cases').on_enter(), 0)
             return
         except Exception as e:
             print("Ошибка чтения кэша:", e)
-            
-    print("Используем локальную базу данных.")
 
-# ============ КАРТОЧКА ДЛЯ РУЛЕТКИ ============
+# ============ КАРТОЧКА ============
 class Card(BoxLayout):
     def __init__(self, item, **kwargs):
         super().__init__(orientation='vertical', **kwargs)
@@ -194,7 +206,7 @@ class Card(BoxLayout):
         self.inner.pos  = (self.x + off, self.y + off)
         self.inner.size = (self.width - off * 2, self.height - off * 2)
 
-# ============ КЛИКАБЕЛЬНАЯ СТРОКА ИНВЕНТАРЯ ============
+# ============ СТРОКА ИНВЕНТАРЯ ============
 class InventoryRow(ButtonBehavior, BoxLayout):
     def __init__(self, item, inventory_screen, **kwargs):
         super().__init__(**kwargs)
@@ -249,7 +261,7 @@ class CaseListScreen(Screen):
     def on_enter(self):
         self.list_layout.clear_widgets()
         if not DB:
-            self.list_layout.add_widget(Label(text="Нет данных о кейсах", font_size='18sp'))
+            self.list_layout.add_widget(Label(text="Загрузка базы...", font_size='18sp'))
             return
             
         for name, data in DB.items():
@@ -262,16 +274,14 @@ class CaseListScreen(Screen):
             bg = RoundedRectangle(radius=[dp(8)])
         card.bind(pos=lambda i, v: setattr(bg, 'pos', v), size=lambda i, v: setattr(bg, 'size', v))
 
-        # Проверяем наличие картинки кейса
         case_slug = f"case_{slugify(name)}"
         icon_path = ""
-        for ext in ('.png', '.jpg', '.jpeg', '.webp'):
-            p = os.path.join(IMAGES_DIR, case_slug + ext)
+        for ext in ('.png', '.jpg', '.jpeg'):
+            p = os.path.join(get_images_dir(), case_slug + ext)
             if os.path.exists(p):
                 icon_path = p
                 break
                 
-        # Если картинки кейса нет, берем картинку самого дорогого предмета
         if not icon_path:
             icon_path = get_image_path(data['items'][-1])
         
@@ -289,7 +299,6 @@ class CaseListScreen(Screen):
         btn.bind(on_press=lambda *a, n=name: self.app.open_case(n))
         card.add_widget(btn)
         return card
-
 
 class InventoryScreen(Screen):
     def __init__(self, app, **kw):
@@ -344,7 +353,6 @@ class InventoryScreen(Screen):
         self.app.save_game()
         self.refresh()
 
-
 class OpeningScreen(Screen):
     def __init__(self, app, **kw):
         super().__init__(**kw)
@@ -362,7 +370,6 @@ class OpeningScreen(Screen):
         header.add_widget(self.case_lbl)
         root.add_widget(header)
 
-        # ВЕРНУЛ ПРАВИЛЬНУЮ ВЫСОТУ РУЛЕТКИ (было 800, стало 200)
         roulette_area = FloatLayout(size_hint=(1, None), height=dp(800), pos_hint={'center_y': 0.55})
         self.scroll = ScrollView(do_scroll_x=False, do_scroll_y=False, bar_width=0)
         self.strip = BoxLayout(orientation='horizontal', size_hint=(None, 1), spacing=dp(6), padding=dp(10))
@@ -382,8 +389,7 @@ class OpeningScreen(Screen):
                 self.bind(pos=self._upd, size=self._upd)
             def _upd(self, *a):
                 cx = self.x + self.width / 2
-                # ВЕРНУЛ ПРАВИЛЬНУЮ ОТРИСОВКУ ЛИНИИ (было self.y+150, стало self.y, self.top)
-                self.line.points = [cx, self.y + 150, cx, self.y + 250]
+                self.line.points = [cx, self.y +250, cx, self.y + 150]
 
         marker = CenterMarker(pos_hint={'center_x': 0.5, 'center_y': 0.5})
         roulette_area.add_widget(marker)
@@ -464,7 +470,6 @@ class OpeningScreen(Screen):
         self.is_spinning = False
         self.btn_open.disabled = False
 
-
 # ==============================================================
 # ПРИЛОЖЕНИЕ
 # ==============================================================
@@ -500,7 +505,6 @@ class CaseApp(App):
         nav.add_widget(btn_inv)
         root.add_widget(nav)
 
-        # Запускаем загрузку базы (а затем и картинок) в фоне
         threading.Thread(target=load_database_from_internet, args=(self,), daemon=True).start()
 
         return root
@@ -513,13 +517,14 @@ class CaseApp(App):
         
     def save_game(self):
         data = {"balance": self.balance, "inventory": self.inventory}
-        with open("savegame.json", "w", encoding="utf-8") as f:
+        with open(get_save_file(), "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
             
     def load_game(self):
-        if os.path.exists("savegame.json"):
+        save_path = get_save_file()
+        if os.path.exists(save_path):
             try:
-                with open("savegame.json", "r", encoding="utf-8") as f:
+                with open(save_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     self.balance = data.get("balance", 5000.0)
                     self.inventory = data.get("inventory", [])
