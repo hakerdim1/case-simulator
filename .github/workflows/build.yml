@@ -22,7 +22,7 @@ jobs:
       - name: Install Buildozer and Cython
         run: |
           pip install --upgrade pip setuptools wheel
-          pip install --upgrade buildozer Cython==0.29.36
+          pip install --upgrade buildozer "cython==0.29.36"
 
       - name: Build with Buildozer
         run: |
