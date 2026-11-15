@@ -54,5 +54,8 @@ ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 RUN pip install --upgrade pip wheel && \
     pip install "cython<3.0" buildozer
 
+# 👇 Копируем entrypoint.sh и делаем его исполняемым 👇
+COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
+
 WORKDIR ${WORK_DIR}
-ENTRYPOINT ["buildozer"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
