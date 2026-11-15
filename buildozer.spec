@@ -4,7 +4,7 @@ package.name = casesimulator
 package.domain = org.hakerdim1
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,json
-version = 1.0.0
+version = 3.0.0
 
 requirements = python3==3.11.1,hostpython3==3.11.1,cython==0.29.36,kivy==2.3.0,jnius>=1.4.0,requests,urllib3,certifi
 
