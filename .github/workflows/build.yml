@@ -15,9 +15,8 @@ jobs:
 
       - name: Run Buildozer
         run: |
-          # 👇 Вот эта строка решает проблему с правами доступа 👇
-          sudo chown -R $(id -u):$(id -g) .
-          docker run --rm -v "$PWD":/home/user/hostcwd my-buildozer-image -v android debug
+          # 👇 Добавлен флаг --user для решения проблемы с правами 👇
+          docker run --rm --user $(id -u):$(id -g) -v "$PWD":/home/user/hostcwd my-buildozer-image -v android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
