@@ -6,19 +6,21 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,json
 version = 1.0.0
 
-# Стабильные версии Python и Cython
-requirements = python3==3.9.12,hostpython3==3.9.12,cython==0.29.36,kivy==2.3.0,jnius>=1.4.0,requests,urllib3,certifi
+# 🔒 СТАБИЛЬНАЯ СВЯЗКА БИБЛИОТЕК
+# Жестко фиксируем Python 3.11 и Cython 0.29, чтобы избежать ошибок
+requirements = python3==3.11.1,hostpython3==3.11.1,cython==0.29.36,kivy==2.3.0,jnius>=1.4.0,requests,urllib3,certifi
 
 orientation = portrait
 fullscreen = 0
 android.permissions = INTERNET
 android.archs = arm64-v8a
 
-# Проверенные версии API и NDK
+# 🔒 ПРОВЕРЕННЫЕ ВЕРСИИ ANDROID API И NDK
 android.api = 33
 android.minapi = 24
 android.ndk = 25b
 
+# Стабильная ветка сборщика
 p4a.branch = master
 android.accept_sdk_license = True
 
