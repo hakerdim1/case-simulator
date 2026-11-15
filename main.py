@@ -2,11 +2,9 @@ import os
 import re
 import random
 import json
-import urllib.request
+import requests # 👈 Заменили urllib на requests
 import threading
-import ssl
-import certifi
-import time # 👈 ДОБАВЛЕНО ДЛЯ ОБХОДА КЭША
+import time
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.boxlayout import BoxLayout
@@ -49,6 +47,7 @@ except ImportError:
     LOCAL_DATABASE = {} 
 
 DB = LOCAL_DATABASE
+STATUS_TEXT = "Инициализация..."
 
 # Функции для получения правильных путей (Android запрещает писать в корень)
 def get_data_dir():
@@ -106,18 +105,21 @@ def left_label(text, **kw):
 # ============ СИСТЕМА СКАЧИВАНИЯ (с обходом ошибок SSL на Android) ============
 def download_file(url, local_path):
     try:
-        ctx = ssl.create_default_context(cafile=certifi.where())
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp, open(local_path, 'wb') as f:
-            f.write(resp.read())
+        headers = {'User-Agent': 'Mozilla/5.0', 'Cache-Control': 'no-cache'}
+        r = requests.get(url, headers=headers, timeout=15)
+        r.raise_for_status()
+        with open(local_path, 'wb') as f:
+            f.write(r.content)
         return True
     except Exception as e:
         print(f"Ошибка скачивания {url}: {e}")
         return False
 
 def sync_images():
+    global STATUS_TEXT
     print("Начинаем проверку картинок...")
     images_dir = get_images_dir()
+    downloaded = 0
     
     for case_name, case_data in DB.items():
         # Обложки кейсов
@@ -126,6 +128,7 @@ def sync_images():
         if not case_exists:
             for ext in (".png", ".jpg", ".jpeg"):
                 if download_file(BASE_IMAGE_URL + case_slug + ext, os.path.join(images_dir, case_slug + ext)):
+                    downloaded += 1
                     break
 
         # Предметы
@@ -135,47 +138,45 @@ def sync_images():
             if not item_exists:
                 for ext in (".png", ".jpg", ".jpeg"):
                     if download_file(BASE_IMAGE_URL + item_slug + ext, os.path.join(images_dir, item_slug + ext)):
+                        downloaded += 1
                         break
+    STATUS_TEXT = f"Картинок скачано: {downloaded}"
     print("Скачивание картинок завершено!")
 
-# ============ ОБНОВЛЕННАЯ ФУНКЦИЯ ЗАГРУЗКИ (ОБХОД КЭША) ============
+# ============ ОБНОВЛЕННАЯ ЗАГРУЗКА БАЗЫ (ОБХОД КЭША) ============
 def load_database_from_internet(app_instance):
-    global DB
+    global DB, STATUS_TEXT
     cache_file = get_cache_file()
     try:
+        STATUS_TEXT = "Скачивание базы..."
         print("Пытаемся скачать базу...")
-        ctx = ssl.create_default_context(cafile=certifi.where())
         
         # 👇 МАГИЯ: добавляем время к ссылке, чтобы GitHub не отдавал старую версию 👇
         url_with_no_cache = f"{DATABASE_URL}?t={int(time.time())}"
+        headers = {'User-Agent': 'Mozilla/5.0', 'Cache-Control': 'no-cache'}
         
-        req = urllib.request.Request(
-            url_with_no_cache, 
-            headers={
-                'User-Agent': 'Mozilla/5.0',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
-            }
-        )
+        r = requests.get(url_with_no_cache, headers=headers, timeout=10)
+        r.raise_for_status()
         
-        with urllib.request.urlopen(req, timeout=10, context=ctx) as response:
-            data = response.read().decode('utf-8')
-            new_db = json.loads(data)
-            
-            with open(cache_file, 'w', encoding='utf-8') as f:
-                f.write(data)
-            
-            DB = new_db
-            print("База успешно обновлена!")
-            
-            threading.Thread(target=sync_images, daemon=True).start()
-            Clock.schedule_once(lambda dt: app_instance.sm.get_screen('cases').on_enter(), 0)
-            return
+        new_db = r.json()
+        
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            f.write(r.text)
+        
+        DB = new_db
+        STATUS_TEXT = "База обновлена из сети!"
+        print("База успешно обновлена!")
+        
+        threading.Thread(target=sync_images, daemon=True).start()
+        Clock.schedule_once(lambda dt: app_instance.sm.get_screen('cases').on_enter(), 0)
+        return
     except Exception as e:
+        STATUS_TEXT = f"Ошибка сети: {str(e)[:20]}"
         print("Не удалось скачать базу:", e)
     
     if os.path.exists(cache_file):
         try:
+            STATUS_TEXT = "Загрузка из кэша..."
             print("Загружаем базу из кэша...")
             with open(cache_file, 'r', encoding='utf-8') as f:
                 DB = json.load(f)
@@ -263,7 +264,12 @@ class CaseListScreen(Screen):
         super().__init__(**kw)
         self.app = app
         root = BoxLayout(orientation='vertical', padding=dp(10), spacing=dp(8))
-        root.add_widget(Label(text='КЕЙСЫ', font_size='22sp', bold=True, size_hint_y=None, height=dp(40)))
+        
+        # Добавили маленькую строчку статуса вверху, чтобы видеть, скачалась база или нет
+        self.status_lbl = Label(text=STATUS_TEXT, font_size='11sp', color=(0.6, 0.6, 0.6, 1), size_hint_y=None, height=dp(20))
+        root.add_widget(self.status_lbl)
+        
+        root.add_widget(Label(text='КЕЙСЫ', font_size='22sp', bold=True, size_hint_y=None, height=dp(30)))
 
         self.scroll = ScrollView()
         self.list_layout = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(8))
@@ -273,6 +279,7 @@ class CaseListScreen(Screen):
         self.add_widget(root)
 
     def on_enter(self):
+        self.status_lbl.text = STATUS_TEXT
         self.list_layout.clear_widgets()
         if not DB:
             self.list_layout.add_widget(Label(text="Загрузка базы...", font_size='18sp'))
@@ -384,6 +391,7 @@ class OpeningScreen(Screen):
         header.add_widget(self.case_lbl)
         root.add_widget(header)
 
+        # Оставили вашу высоту 800
         roulette_area = FloatLayout(size_hint=(1, None), height=dp(800), pos_hint={'center_y': 0.55})
         self.scroll = ScrollView(do_scroll_x=False, do_scroll_y=False, bar_width=0)
         self.strip = BoxLayout(orientation='horizontal', size_hint=(None, 1), spacing=dp(6), padding=dp(10))
@@ -403,7 +411,8 @@ class OpeningScreen(Screen):
                 self.bind(pos=self._upd, size=self._upd)
             def _upd(self, *a):
                 cx = self.x + self.width / 2
-                self.line.points = [cx, self.y +500, cx, self.y + 300]
+                # Оставили вашу линию как было
+                self.line.points = [cx, self.y +800, cx, self.y + 500]
 
         marker = CenterMarker(pos_hint={'center_x': 0.5, 'center_y': 0.5})
         roulette_area.add_widget(marker)
