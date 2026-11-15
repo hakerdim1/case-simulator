@@ -9,15 +9,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build with Buildozer
-        uses: ArtemSBulgakov/buildozer-action@v1
-        id: buildozer
-        with:
-          command: buildozer android debug
-          buildozer_version: stable
+      - name: Build Docker image
+        run: |
+          docker build -t my-buildozer-image .
+
+      - name: Run Buildozer
+        run: |
+          docker run --rm -v "$PWD":/home/user/hostcwd my-buildozer-image -v android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Case-Simulator-APK
-          path: ${{ steps.buildozer.outputs.filename }}
+          path: bin/*.apk
