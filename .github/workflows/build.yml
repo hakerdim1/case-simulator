@@ -15,7 +15,6 @@ jobs:
 
       - name: Run Buildozer
         run: |
-          # Флаг --user убран, entrypoint.sh сам переключит пользователя
           docker run --rm -v "$PWD":/home/user/hostcwd my-buildozer-image -v android debug
 
       - name: Upload APK
