@@ -6,6 +6,7 @@ import requests
 import threading
 import time
 import math
+import urllib3 # 👈 Добавлено для отключения предупреждений SSL
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.boxlayout import BoxLayout
@@ -23,6 +24,9 @@ from kivy.graphics import Color, RoundedRectangle, Line, Ellipse
 from kivy.core.window import Window
 from kivy.utils import platform
 from kivy.properties import NumericProperty
+
+# Отключаем предупреждения о небезопасном SSL (чтобы не засорять консоль)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Проверяем разрешения на Android
 if platform == 'android':
@@ -104,10 +108,12 @@ def get_all_items():
     unique_items = {item['name']: item for item in all_items}.values()
     return sorted(unique_items, key=lambda x: x['price'])
 
+# ============ ИСПРАВЛЕННЫЕ ФУНКЦИИ СКАЧИВАНИЯ ============
 def download_file(url, local_path):
     try:
         headers = {'User-Agent': 'Mozilla/5.0', 'Cache-Control': 'no-cache'}
-        r = requests.get(url, headers=headers, timeout=15)
+        # Добавлено verify=False и timeout=60
+        r = requests.get(url, headers=headers, timeout=60, verify=False)
         r.raise_for_status()
         with open(local_path, 'wb') as f:
             f.write(r.content)
@@ -147,29 +153,34 @@ def load_database_from_internet(app_instance):
         STATUS_TEXT = "Скачивание базы..."
         url_with_no_cache = f"{DATABASE_URL}?t={int(time.time())}"
         headers = {'User-Agent': 'Mozilla/5.0', 'Cache-Control': 'no-cache'}
-        r = requests.get(url_with_no_cache, headers=headers, timeout=10)
+        
+        # Добавлено verify=False и timeout=60
+        r = requests.get(url_with_no_cache, headers=headers, timeout=60, verify=False)
         r.raise_for_status()
+        
         new_db = r.json()
         with open(cache_file, 'w', encoding='utf-8') as f:
             f.write(r.text)
         DB = new_db
-        STATUS_TEXT = "База обновлена из сети!"
+        STATUS_TEXT = "✅ База обновлена из сети!"
         threading.Thread(target=sync_images, daemon=True).start()
         Clock.schedule_once(lambda dt: app_instance.sm.get_screen('cases').on_enter(), 0)
         return
     except Exception as e:
-        error_msg = str(e)
+        # Показываем тип ошибки (например, Timeout или ConnectionError)
+        error_msg = f"{type(e).__name__}: {str(e)}"
     
     if os.path.exists(cache_file):
         try:
             with open(cache_file, 'r', encoding='utf-8') as f:
                 DB = json.load(f)
-            STATUS_TEXT = f"Ошибка: {error_msg[:20]}. Кэш."
+            # Выводим ошибку на экран (до 60 символов)
+            STATUS_TEXT = f"⚠️ {error_msg[:60]}... Кэш."
             threading.Thread(target=sync_images, daemon=True).start()
             Clock.schedule_once(lambda dt: app_instance.sm.get_screen('cases').on_enter(), 0)
             return
         except: pass
-    STATUS_TEXT = f"Ошибка сети: {error_msg}"
+    STATUS_TEXT = f"❌ {error_msg[:60]}"
 
 # ============ КАРТОЧКА ============
 class Card(BoxLayout):
@@ -254,7 +265,7 @@ class UpgraderWheel(Widget):
         self.canvas.clear()
         
         cx = self.width / 2
-        cy = (self.height / 2) + 320 # Ваше смещение сохранено
+        cy = (self.height / 2) + 320 # Твое смещение сохранено
         r = min(self.width, self.height) / 3
 
         if r <= 0: return
@@ -267,7 +278,7 @@ class UpgraderWheel(Widget):
             Line(circle=(cx, cy, r), width=dp(10))
 
             if self.chance > 0:
-                # 1. Зеленая зона (рисуем по точкам от 0 до end_angle)
+                # 1. Зеленая зона
                 Color(0.2, 0.9, 0.2, 1)
                 green_points = []
                 for a in range(0, int(end_angle) + 1, 3):
@@ -276,7 +287,7 @@ class UpgraderWheel(Widget):
                 if green_points:
                     Line(points=green_points, width=dp(10))
                 
-                # 2. Красная зона (рисуем по точкам от end_angle до 360)
+                # 2. Красная зона
                 Color(0.9, 0.2, 0.2, 1)
                 red_points = []
                 for a in range(int(end_angle), 361, 3):
@@ -289,13 +300,13 @@ class UpgraderWheel(Widget):
             Color(0.8, 0.8, 0.8, 1)
             Ellipse(pos=(cx - dp(4), cy - dp(4)), size=(dp(8), dp(8)))
 
-            # Стрелка (используем ту же математику, что и для круга)
+            # Стрелка
             Color(1, 1, 1, 1)
             rad = math.radians(self.angle)
             end_x = cx + (r + dp(15)) * math.cos(rad)
-            # Убрал минус, чтобы стрелка совпадала с отрисовкой точек
             end_y = cy + (r + dp(15)) * math.sin(rad) 
             Line(points=[cx, cy, end_x, end_y], width=dp(3))
+
 # ============ ЭКРАН 1: КЕЙСЫ ============
 class CaseListScreen(Screen):
     def __init__(self, app, **kw):
@@ -679,6 +690,7 @@ class UpgraderScreen(Screen):
         anim = Animation(angle=final_angle, duration=4.0, t='out_expo')
         anim.bind(on_complete=lambda *a: self._resolve_upgrade(is_success))
         anim.start(self.wheel)
+
     def _resolve_upgrade(self, is_success):
         if is_success:
             self.app.inventory.remove(self.source_item)
