@@ -265,7 +265,7 @@ class UpgraderWheel(Widget):
         self.canvas.clear()
         
         cx = self.width / 2
-        cy = (self.height / 2) + 800 # Твое смещение сохранено
+        cy = (self.height / 2) + 1000# Твое смещение сохранено
         r = min(self.width, self.height) / 3
 
         if r <= 0: return
