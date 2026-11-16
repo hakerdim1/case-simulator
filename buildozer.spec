@@ -10,7 +10,7 @@ requirements = python3==3.11.1,hostpython3==3.11.1,cython==0.29.36,kivy==2.3.0,j
 
 orientation = portrait
 fullscreen = 0
-android.permissions = INTERNET
+android.permissions = INTERNET, ACCESS_NETWORK_STATE
 android.archs = arm64-v8a
 
 android.api = 33
