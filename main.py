@@ -36,7 +36,7 @@ if platform == 'android':
         pass
 
 DATABASE_URL = "https://gist.githubusercontent.com/hakerdim1/0ee3bfef3ad74233fa917e1d2da47b2c/raw/database.json"
-BASE_IMAGE_URL = "https://raw.githubusercontent.com/hakerdim1/game-images/main/"
+BASE_IMAGE_URL = "https://raw.githubusercontent.com/hakerdim1/game-images/images/main/"
 
 if platform != 'android':
     try:
