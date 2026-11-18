@@ -35,7 +35,7 @@ if platform == 'android':
     except Exception:
         pass
 
-DATABASE_URL = "https://gist.githubusercontent.com/hakerdim1/829f41969583cbcb808dd2ea460af696/raw/database.json"
+DATABASE_URL = "https://gist.github.com/hakerdim1/c874ccc4fc147b0cdb2a2b46b468fff6/raw/database.json"
 BASE_IMAGE_URL = "https://raw.githubusercontent.com/hakerdim1/game-images/main/"
 
 if platform != 'android':
