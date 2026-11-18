@@ -230,7 +230,7 @@ class Card(BoxLayout):
         self.add_widget(Label(
             text=f"{item['price']:.0f} ₽",
             font_size=f'{price_fs}sp', color=color, bold=True,
-            size_hint_y=None, height=dp(20)
+            size_hint_y=1, height=dp(5)
         ))
 
     def _upd(self, *a):
